@@ -63,6 +63,9 @@ function mainProcess(event, context, callback) {
     config.AUTH_REQUEST.redirect_uri = event.Records[0].cf.config.test + config.CALLBACK_PATH;
     config.TOKEN_REQUEST.redirect_uri = event.Records[0].cf.config.test + config.CALLBACK_PATH;
   }
+
+  const cookies = "cookie" in headers ? cookie.parse(headers["cookie"][0].value) : {};
+
   if (request.uri.startsWith(config.CALLBACK_PATH)) {
     console.log("Callback from OIDC provider received");
 
@@ -82,22 +85,19 @@ function mainProcess(event, context, callback) {
       var error_description = queryDict.error_description ?? '';
       var error_uri = queryDict.error_uri ?? '';
 
-      unauthorized(error, error_description, error_uri, callback);
+      return unauthorized(error, error_description, error_uri, callback);
     }
 
     // Verify code is in querystring
     if (!queryDict.code) {
-      unauthorized('No Code Found', '', '', callback);
+      return unauthorized('No Code Found', '', '', callback);
     }
-
-    const cookies = "cookie" in headers ? cookie.parse(headers["cookie"][0].value) : {};
-
     config.TOKEN_REQUEST.code = queryDict.code;
     if ("CV" in cookies) {
       config.TOKEN_REQUEST.code_verifier = cookies.CV
       console.log("Code Verifier: " + config.TOKEN_REQUEST.code_verifier);
     } else {
-      unauthorized('No Code Verifier Found', '', '', callback);
+      return unauthorized('No Code Verifier Found', '', '', callback);
     }
     // Exchange code for authorization token
     const postData = qs.stringify(config.TOKEN_REQUEST);
@@ -107,89 +107,47 @@ function mainProcess(event, context, callback) {
         console.log(response);
         const decodedData = jwt.decode(response.data.id_token, {complete: true});
         console.log(decodedData);
-        try {
-          console.log("Searching for JWK from discovery document");
+        console.log("Searching for JWK from discovery document");
 
-          // Search for correct JWK from discovery document and create PEM
-          var pem = "";
-          for (var i = 0; i < jwks.keys.length; i++) {
-            if (decodedData.header.kid === jwks.keys[i].kid) {
-              pem = jwkToPem(jwks.keys[i]);
-            }
+        // Search for correct JWK from discovery document and create PEM
+        var pem = "";
+        for (var i = 0; i < jwks.keys.length; i++) {
+          if (decodedData.header.kid === jwks.keys[i].kid) {
+            pem = jwkToPem(jwks.keys[i]);
           }
-          console.log("Verifying JWT");
-
-          // Verify the JWT, the payload email, and that the email ends with configured hosted domain
-          jwt.verify(response.data.id_token, pem, { algorithms: ['RS256'] }, function(err, decoded) {
-            if (err) {
-              switch (err.name) {
-                case 'TokenExpiredError':
-                  console.log("Token expired, redirecting to OIDC provider.");
-                  redirect(request, headers, callback)
-                  break;
-                case 'JsonWebTokenError':
-                  console.log("JWT error, unauthorized.");
-                  unauthorized('Json Web Token Error', err.message, '', callback);
-                  break;
-                default:
-                  console.log("Unknown JWT error, unauthorized.");
-                  unauthorized('Unknown JWT', 'User ' + decodedData.payload.email + ' is not permitted.', '', callback);
-              }
-            } else {
-
-              // Validate nonce
-              if ("NONCE" in cookies && nonce.validateNonce(decoded.nonce, cookies.NONCE)) {
-                console.log("Setting cookie and redirecting.");
-
-                // Once verified, create new JWT for this server
-                const response = {
-                  "status": "302",
-                  "statusDescription": "Found",
-                  "body": "ID token retrieved.",
-                  "headers": {
-                    "location" : [
-                      {
-                        "key": "Location",
-                        "value": event.Records[0].cf.config.hasOwnProperty('test') ? (config.AUTH_REQUEST.redirect_uri + queryDict.state) : queryDict.state
-                      }
-                    ],
-                    "set-cookie" : [
-                      {
-                        "key": "Set-Cookie",
-                        "value" : cookie.serialize('TOKEN', jwt.sign(
-                          { },
-                          config.PRIVATE_KEY.trim(),
-                          {
-                            "audience": headers.host[0].value,
-                            "subject": auth.getSubject(decodedData),
-                            "expiresIn": config.SESSION_DURATION,
-                            "algorithm": "RS256"
-                          } // Options
-                        ), {
-                          path: '/',
-                          maxAge: config.SESSION_DURATION
-                        })
-                      },
-                      {
-                        "key": "Set-Cookie",
-                        "value" : cookie.serialize('NONCE', '', {
-                          path: '/',
-                          expires: new Date(1970, 1, 1, 0, 0, 0, 0)
-                        })
-                      }
-                    ],
-                  },
-                };
-                callback(null, response);
-              } else {
-                unauthorized('Nonce Verification Failed', '', '', callback);
-              }
-            }
-          });
-        } catch (error) {
-          console.log("Internal server error: " + error.message);
-          internalServerError(callback);
         }
+        console.log("Verifying JWT");
+
+        // Verify the JWT, the payload email, and that the email ends with configured hosted domain
+        jwt.verify(response.data.id_token, pem, { algorithms: ['RS256'] }, function(err, decoded) {
+          if (err) {
+            switch (err.name) {
+              case 'TokenExpiredError':
+                console.log("Token expired, redirecting to OIDC provider.");
+                redirect(request, headers, callback)
+                break;
+              case 'JsonWebTokenError':
+                console.log("JWT error, unauthorized.");
+                unauthorized('Json Web Token Error', err.message, '', callback);
+                break;
+              default:
+                console.log("Unknown JWT error, unauthorized.");
+                unauthorized('Unknown JWT', 'User ' + decodedData.payload.email + ' is not permitted.', '', callback);
+            }
+            return;
+          }
+
+          // Validate nonce
+          if ("NONCE" in cookies && nonce.validateNonce(decoded.nonce, cookies.NONCE)) {
+            console.log("Setting cookie and redirecting.");
+
+            // Once verified, create new JWT for this server
+            const response = createNewJwtResponse(event, config, queryDict, decodedData)
+            callback(null, response);
+          } else {
+            unauthorized('Nonce Verification Failed', '', '', callback);
+          }
+        });
       })
       .catch(function(error) {
         console.log("Internal server error: " + error.message);
@@ -214,10 +172,10 @@ function mainProcess(event, context, callback) {
             console.log("Unknown JWT error, unauthorized.");
             unauthorized('Unauthorized.', 'User ' + decoded.sub + ' is not permitted.', '', callback);
         }
-      } else {
-        console.log("Authorizing user.");
-        auth.isAuthorized(decoded, request, callback, unauthorized, internalServerError, config);
+        return;
       }
+      console.log("Authorizing user.");
+      auth.isAuthorized(decoded, request, callback, unauthorized, internalServerError, config);
     });
   } else {
     console.log("Redirecting to OIDC provider.");
@@ -225,6 +183,46 @@ function mainProcess(event, context, callback) {
   }
 }
 
+function createNewJwtResponse(event, config, queryDict, decodedData) {
+  return {
+    "status": "302",
+    "statusDescription": "Found",
+    "body": "ID token retrieved.",
+    "headers": {
+      "location" : [
+        {
+          "key": "Location",
+          "value": event.Records[0].cf.config.hasOwnProperty('test') ? (config.AUTH_REQUEST.redirect_uri + queryDict.state) : queryDict.state
+        }
+      ],
+      "set-cookie" : [
+        {
+          "key": "Set-Cookie",
+          "value" : cookie.serialize('TOKEN', jwt.sign(
+            { },
+            config.PRIVATE_KEY.trim(),
+            {
+              "audience": headers.host[0].value,
+              "subject": auth.getSubject(decodedData),
+              "expiresIn": config.SESSION_DURATION,
+              "algorithm": "RS256"
+            } // Options
+          ), {
+            path: '/',
+            maxAge: config.SESSION_DURATION
+          })
+        },
+        {
+          "key": "Set-Cookie",
+          "value" : cookie.serialize('NONCE', '', {
+            path: '/',
+            expires: new Date(1970, 1, 1, 0, 0, 0, 0)
+          })
+        }
+      ],
+    },
+  };
+}
 function redirect(request, headers, callback) {
   const n = nonce.getNonce();
   const challenge = codeChallenge.get(parseInt(config.PKCE_CODE_VERIFIER_LENGTH));
