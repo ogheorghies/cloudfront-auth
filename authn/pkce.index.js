@@ -78,29 +78,9 @@ function mainProcess(event, context, callback) {
         "temporarily_unavailable": "Temporarily Unavailable"
       }
 
-      var error = '';
-      var error_description = '';
-      var error_uri = '';
-
-      if (errors[queryDict.error] != null) {
-        // Replace with corresponding value
-        error = errors[queryDict.error];
-      } else {
-        // Replace with passed in value
-        error = queryDict.error;
-      }
-
-      if (queryDict.error_description != null) {
-        error_description = queryDict.error_description;
-      } else {
-        error_description = '';
-      }
-
-      if (queryDict.error_uri != null) {
-        error_uri = queryDict.error_uri;
-      } else {
-        error_uri = '';
-      }
+      var error = errors[queryDict.error] ?? queryDict.error;
+      var error_description = queryDict.error_description ?? '';
+      var error_uri = queryDict.error_uri ?? '';
 
       unauthorized(error, error_description, error_uri, callback);
     }
