@@ -89,9 +89,12 @@ function mainProcess(event, context, callback) {
     if (!queryDict.code) {
       unauthorized('No Code Found', '', '', callback);
     }
+
+    const cookies = "cookie" in headers ? cookie.parse(headers["cookie"][0].value) : {};
+
     config.TOKEN_REQUEST.code = queryDict.code;
-    if ("cookie" in headers && "CV" in cookie.parse(headers["cookie"][0].value)) {
-      config.TOKEN_REQUEST.code_verifier = cookie.parse(headers["cookie"][0].value).CV
+    if ("CV" in cookies) {
+      config.TOKEN_REQUEST.code_verifier = cookies.CV
       console.log("Code Verifier: " + config.TOKEN_REQUEST.code_verifier);
     } else {
       unauthorized('No Code Verifier Found', '', '', callback);
@@ -135,9 +138,7 @@ function mainProcess(event, context, callback) {
             } else {
 
               // Validate nonce
-              if ("cookie" in headers
-                  && "NONCE" in cookie.parse(headers["cookie"][0].value)
-                  && nonce.validateNonce(decoded.nonce, cookie.parse(headers["cookie"][0].value).NONCE)) {
+              if ("NONCE" in cookies && nonce.validateNonce(decoded.nonce, cookies.NONCE)) {
                 console.log("Setting cookie and redirecting.");
 
                 // Once verified, create new JWT for this server
@@ -194,12 +195,11 @@ function mainProcess(event, context, callback) {
         console.log("Internal server error: " + error.message);
         internalServerError(callback);
       });
-  } else if ("cookie" in headers
-              && "TOKEN" in cookie.parse(headers["cookie"][0].value)) {
+  } else if ("TOKEN" in cookies) {
     console.log("Request received with TOKEN cookie. Validating.");
 
     // Verify the JWT, the payload email, and that the email ends with configured hosted domain
-    jwt.verify(cookie.parse(headers["cookie"][0].value).TOKEN, config.PUBLIC_KEY.trim(), { algorithms: ['RS256'] }, function(err, decoded) {
+    jwt.verify(cookies.TOKEN, config.PUBLIC_KEY.trim(), { algorithms: ['RS256'] }, function(err, decoded) {
       if (err) {
         switch (err.name) {
           case 'TokenExpiredError':
