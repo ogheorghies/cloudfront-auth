@@ -11,46 +11,37 @@ var discoveryDocument;
 var jwks;
 var config;
 
-exports.handler = (event, context, callback) => {
+exports.handler = async (event, context, callback) => {
   if (typeof jwks == 'undefined' || typeof discoveryDocument == 'undefined' || typeof config == 'undefined') {
-    config = JSON.parse(fs.readFileSync('config.json', 'utf8'));
+    try {
+      config = JSON.parse(fs.readFileSync('config.json', 'utf8'));
 
-    // Get Discovery Document data
-    console.log("Get discovery document data");
-    axios.get(config.DISCOVERY_DOCUMENT)
-      .then(function(response) {
-        console.log(response);
+      // Get Discovery Document data
+      console.log("Get discovery document data");
 
-        // Get jwks from discovery document url
-        console.log("Get jwks from discovery document");
-        discoveryDocument = response.data;
-        if (discoveryDocument.hasOwnProperty('jwks_uri')) {
+      const discoveryDocumentResponse = await axios.get(config.DISCOVERY_DOCUMENT);
+      console.log(discoveryDocumentResponse);
 
-          // Get public key and verify JWT
-          axios.get(discoveryDocument.jwks_uri)
-            .then(function(response) {
-              console.log(response);
-              jwks = response.data;
+      // Get jwks from discovery document url
+      console.log("Get jwks from discovery document");
+      discoveryDocument = discoveryDocumentResponse.data;
+      if (!discoveryDocument.hasOwnProperty('jwks_uri')) {
+        console.log("Internal server error: Unable to find JWK in discovery document");
+        return internalServerError(callback);
+      }
 
-              // Callback to main function
-              mainProcess(event, context, callback);
-            })
-            .catch(function(error) {
-              console.log("Internal server error: " + error.message);
-              internalServerError(callback);
-            });
-        } else {
-          console.log("Internal server error: Unable to find JWK in discovery document");
-          internalServerError(callback);
-        }
-      })
-      .catch(function(error) {
-        console.log("Internal server error: " + error.message);
-        internalServerError(callback);
-      });
-  } else {
-    mainProcess(event, context, callback);
+      // Get public key and verify JWT
+      const jwksResponse = await axios.get(discoveryDocument.jwks_uri);
+      console.log(jwksResponse);
+      jwks = jwksResponse.data;
+    } catch (error) {
+      console.log("Internal server error: " + error.message);
+      internalServerError(callback);
+    }
   }
+
+  // Callback to main function
+  mainProcess(event, context, callback);
 };
 
 function mainProcess(event, context, callback) {
