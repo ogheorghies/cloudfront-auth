@@ -129,15 +129,14 @@ function mainProcess(event, context, callback) {
           }
 
           // Validate nonce
-          if ("NONCE" in cookies && nonce.validateNonce(decoded.nonce, cookies.NONCE)) {
-            console.log("Setting cookie and redirecting.");
-
-            // Once verified, create new JWT for this server
-            const jwtResponse = createNewJwtResponse(event, config, queryDict, decodedData)
-            callback(null, jwtResponse);
-          } else {
-            unauthorized('Nonce Verification Failed', '', '', callback);
+          if (!("NONCE" in cookies) || !nonce.validateNonce(decoded.nonce, cookies.NONCE)) {
+            return unauthorized('Nonce Verification Failed', '', '', callback);
           }
+          console.log("Setting cookie and redirecting.");
+
+          // Once verified, create new JWT for this server
+          const jwtResponse = createNewJwtResponse(event, config, queryDict, decodedData)
+          callback(null, jwtResponse);
         });
       })
       .catch(function(error) {
