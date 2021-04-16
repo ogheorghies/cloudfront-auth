@@ -133,8 +133,8 @@ function mainProcess(event, context, callback) {
             console.log("Setting cookie and redirecting.");
 
             // Once verified, create new JWT for this server
-            const response = createNewJwtResponse(event, config, queryDict, decodedData)
-            callback(null, response);
+            const jwtResponse = createNewJwtResponse(event, config, queryDict, decodedData)
+            callback(null, jwtResponse);
           } else {
             unauthorized('Nonce Verification Failed', '', '', callback);
           }
