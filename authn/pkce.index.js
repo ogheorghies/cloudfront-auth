@@ -84,12 +84,13 @@ function mainProcess(event, context, callback) {
       return unauthorized('No Code Found', '', '', callback);
     }
     config.TOKEN_REQUEST.code = queryDict.code;
-    if ("CV" in cookies) {
-      config.TOKEN_REQUEST.code_verifier = cookies.CV
-      console.log("Code Verifier: " + config.TOKEN_REQUEST.code_verifier);
-    } else {
+
+    if (!("CV" in cookies)) {
       return unauthorized('No Code Verifier Found', '', '', callback);
     }
+    config.TOKEN_REQUEST.code_verifier = cookies.CV
+    console.log("Code Verifier: " + config.TOKEN_REQUEST.code_verifier);
+
     // Exchange code for authorization token
     const postData = qs.stringify(config.TOKEN_REQUEST);
     console.log("Requesting access token.");
