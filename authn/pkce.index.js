@@ -36,7 +36,7 @@ exports.handler = async (event, context, callback) => {
       jwks = jwksResponse.data;
     } catch (error) {
       console.log("Internal server error: " + error.message);
-      internalServerError(callback);
+      return internalServerError(callback);
     }
   }
 
