@@ -57,113 +57,96 @@ async function mainProcess(event, context, callback) {
   const cookies = "cookie" in headers ? cookie.parse(headers["cookie"][0].value) : {};
 
   if (request.uri.startsWith(config.CALLBACK_PATH)) {
-    console.log("Callback from OIDC provider received");
-
-    // Check for error response (https://tools.ietf.org/html/rfc6749#section-4.2.2.1)
-    if (queryDict.error) {
-      const errors = {
-        "invalid_request": "Invalid Request",
-        "unauthorized_client": "Unauthorized Client",
-        "access_denied": "Access Denied",
-        "unsupported_response_type": "Unsupported Response Type",
-        "invalid_scope": "Invalid Scope",
-        "server_error": "Server Error",
-        "temporarily_unavailable": "Temporarily Unavailable"
-      }
-
-      var error = errors[queryDict.error] ?? queryDict.error;
-      var error_description = queryDict.error_description ?? '';
-      var error_uri = queryDict.error_uri ?? '';
-
-      return unauthorized(error, error_description, error_uri, callback);
-    }
-
-    // Verify code is in querystring
-    if (!queryDict.code) {
-      return unauthorized('No Code Found', '', '', callback);
-    }
-    config.TOKEN_REQUEST.code = queryDict.code;
-
-    if (!("CV" in cookies)) {
-      return unauthorized('No Code Verifier Found', '', '', callback);
-    }
-    config.TOKEN_REQUEST.code_verifier = cookies.CV
-    console.log("Code Verifier: " + config.TOKEN_REQUEST.code_verifier);
-
-    // Exchange code for authorization token
-    const postData = qs.stringify(config.TOKEN_REQUEST);
-    console.log("Requesting access token.");
-    const response = await axios.post(discoveryDocument.token_endpoint, postData);
-    console.log("Token response", response);
-    const decodedData = jwt.decode(response.data.id_token, {complete: true});
-    console.log("JWT decoded data", decodedData);
-    console.log("Searching for JWK from discovery document");
-
-    // Search for correct JWK from discovery document and create PEM
-    const jwk = jwks.keys.find(key => key.kid === decodedData.header.kid);
-    if (!jwk) {
-      return unauthorized('JWK not found', 'KID header mismatch');
-    }
-    const pem = jwkToPem(jwk);
-    console.log("Verifying JWT");
-
-    // Verify the JWT, the payload email, and that the email ends with configured hosted domain
-    jwt.verify(response.data.id_token, pem, { algorithms: ['RS256'] }, function(err, decoded) {
-      if (err) {
-        switch (err.name) {
-          case 'TokenExpiredError':
-            console.log("Token expired, redirecting to OIDC provider.");
-            redirect(request, headers, callback)
-            break;
-          case 'JsonWebTokenError':
-            console.log("JWT error, unauthorized.");
-            unauthorized('Json Web Token Error', err.message, '', callback);
-            break;
-          default:
-            console.log("Unknown JWT error, unauthorized.");
-            unauthorized('Unknown JWT', 'User ' + decodedData.payload.email + ' is not permitted.', '', callback);
-        }
-        return;
-      }
-
-      // Validate nonce
-      if (!("NONCE" in cookies) || !nonce.validateNonce(decoded.nonce, cookies.NONCE)) {
-        return unauthorized('Nonce Verification Failed', '', '', callback);
-      }
-      console.log("Setting cookie and redirecting.");
-
-      // Once verified, create new JWT for this server
-      const jwtResponse = createNewJwtResponse(event, config, queryDict, decodedData)
-      callback(null, jwtResponse);
-    });
-  } else if ("TOKEN" in cookies) {
-    console.log("Request received with TOKEN cookie. Validating.");
-
-    // Verify the JWT, the payload email, and that the email ends with configured hosted domain
-    jwt.verify(cookies.TOKEN, config.PUBLIC_KEY.trim(), { algorithms: ['RS256'] }, function(err, decoded) {
-      if (err) {
-        switch (err.name) {
-          case 'TokenExpiredError':
-            console.log("Token expired, redirecting to OIDC provider.");
-            redirect(request, headers, callback)
-            break;
-          case 'JsonWebTokenError':
-            console.log("JWT error, unauthorized.");
-            unauthorized('Json Web Token Error', err.message, '', callback);
-            break;
-          default:
-            console.log("Unknown JWT error, unauthorized.");
-            unauthorized('Unauthorized.', 'User ' + decoded.sub + ' is not permitted.', '', callback);
-        }
-        return;
-      }
-      console.log("Authorizing user.");
-      auth.isAuthorized(decoded, request, callback, unauthorized, internalServerError, config);
-    });
-  } else {
-    console.log("Redirecting to OIDC provider.");
-    redirect(request, headers, callback);
+    return handleRequestAtCallback(event, context, callback, request, queryDict, cookies);
   }
+  if ("TOKEN" in cookies) {
+    return handleRequestWithToken(event, context, callback, request, queryDict, cookies);
+  }
+
+  console.log("Redirecting to OIDC provider.");
+  redirect(request, headers, callback);
+}
+
+function handleRequestAtCallback(event, context, callback, request, queryDict, cookies) {
+  console.log("Callback from OIDC provider received");
+
+  // Check for error response (https://tools.ietf.org/html/rfc6749#section-4.2.2.1)
+  if (queryDict.error) {
+    const errors = {
+      "invalid_request": "Invalid Request",
+      "unauthorized_client": "Unauthorized Client",
+      "access_denied": "Access Denied",
+      "unsupported_response_type": "Unsupported Response Type",
+      "invalid_scope": "Invalid Scope",
+      "server_error": "Server Error",
+      "temporarily_unavailable": "Temporarily Unavailable"
+    }
+
+    var error = errors[queryDict.error] ?? queryDict.error;
+    var error_description = queryDict.error_description ?? '';
+    var error_uri = queryDict.error_uri ?? '';
+
+    return unauthorized(error, error_description, error_uri, callback);
+  }
+
+  // Verify code is in querystring
+  if (!queryDict.code) {
+    return unauthorized('No Code Found', '', '', callback);
+  }
+  config.TOKEN_REQUEST.code = queryDict.code;
+
+  if (!("CV" in cookies)) {
+    return unauthorized('No Code Verifier Found', '', '', callback);
+  }
+  config.TOKEN_REQUEST.code_verifier = cookies.CV
+  console.log("Code Verifier: " + config.TOKEN_REQUEST.code_verifier);
+
+  // Exchange code for authorization token
+  const postData = qs.stringify(config.TOKEN_REQUEST);
+  console.log("Requesting access token.");
+  const response = await axios.post(discoveryDocument.token_endpoint, postData);
+  console.log("Token response", response);
+  const decodedData = jwt.decode(response.data.id_token, {complete: true});
+  console.log("JWT decoded data", decodedData);
+  console.log("Searching for JWK from discovery document");
+
+  // Search for correct JWK from discovery document and create PEM
+  const jwk = jwks.keys.find(key => key.kid === decodedData.header.kid);
+  if (!jwk) {
+    return unauthorized('JWK not found', 'KID header mismatch');
+  }
+  const pem = jwkToPem(jwk);
+  console.log("Verifying JWT");
+
+  // Verify the JWT, the payload email, and that the email ends with configured hosted domain
+  jwt.verify(response.data.id_token, pem, { algorithms: ['RS256'] }, function(err, decoded) {
+    if (err) {
+      switch (err.name) {
+        case 'TokenExpiredError':
+          console.log("Token expired, redirecting to OIDC provider.");
+          redirect(request, headers, callback)
+          break;
+        case 'JsonWebTokenError':
+          console.log("JWT error, unauthorized.");
+          unauthorized('Json Web Token Error', err.message, '', callback);
+          break;
+        default:
+          console.log("Unknown JWT error, unauthorized.");
+          unauthorized('Unknown JWT', 'User ' + decodedData.payload.email + ' is not permitted.', '', callback);
+      }
+      return;
+    }
+
+    // Validate nonce
+    if (!("NONCE" in cookies) || !nonce.validateNonce(decoded.nonce, cookies.NONCE)) {
+      return unauthorized('Nonce Verification Failed', '', '', callback);
+    }
+    console.log("Setting cookie and redirecting.");
+
+    // Once verified, create new JWT for this server
+    const jwtResponse = createNewJwtResponse(event, config, queryDict, decodedData)
+    callback(null, jwtResponse);
+  });
 }
 
 function createNewJwtResponse(event, config, queryDict, decodedData) {
@@ -206,6 +189,33 @@ function createNewJwtResponse(event, config, queryDict, decodedData) {
     },
   };
 }
+
+function handleRequestWithToken(event, context, callback, request, queryDict, cookies) {
+  console.log("Request received with TOKEN cookie. Validating.");
+
+  // Verify the JWT, the payload email, and that the email ends with configured hosted domain
+  jwt.verify(cookies.TOKEN, config.PUBLIC_KEY.trim(), { algorithms: ['RS256'] }, function(err, decoded) {
+    if (err) {
+      switch (err.name) {
+        case 'TokenExpiredError':
+          console.log("Token expired, redirecting to OIDC provider.");
+          redirect(request, headers, callback)
+          break;
+        case 'JsonWebTokenError':
+          console.log("JWT error, unauthorized.");
+          unauthorized('Json Web Token Error', err.message, '', callback);
+          break;
+        default:
+          console.log("Unknown JWT error, unauthorized.");
+          unauthorized('Unauthorized.', 'User ' + decoded.sub + ' is not permitted.', '', callback);
+      }
+      return;
+    }
+    console.log("Authorizing user.");
+    auth.isAuthorized(decoded, request, callback, unauthorized, internalServerError, config);
+  });
+}
+
 function redirect(request, headers, callback) {
   const n = nonce.getNonce();
   const challenge = codeChallenge.get(parseInt(config.PKCE_CODE_VERIFIER_LENGTH));
