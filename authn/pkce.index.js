@@ -101,12 +101,11 @@ function mainProcess(event, context, callback) {
         console.log("Searching for JWK from discovery document");
 
         // Search for correct JWK from discovery document and create PEM
-        var pem = "";
-        for (var i = 0; i < jwks.keys.length; i++) {
-          if (decodedData.header.kid === jwks.keys[i].kid) {
-            pem = jwkToPem(jwks.keys[i]);
-          }
+        const jwk = jwks.keys.find(key => key.kid === decodedData.header.kid);
+        if (!jwk) {
+          return unauthorized('JWK not found', 'KID header mismatch');
         }
+        const pem = jwkToPem(jwk);
         console.log("Verifying JWT");
 
         // Verify the JWT, the payload email, and that the email ends with configured hosted domain
