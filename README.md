@@ -1,6 +1,6 @@
 # Warning
 
-**DO NOT USE THIS CODE** The sole purpose of this repo is to reorganize the code in `pcke.index.js` to make the auth flow clearer. The result has not been properly tested.
+**DO NOT USE THIS CODE** The sole purpose of this repo is to reorganize the code in `pcke.index.js` to make the auth flow clearer. The code is unusable, because it is incompatible with CloudFront's node.js version.
 
 [Google Apps (G Suite)](https://developers.google.com/identity/protocols/OpenIDConnect), [Microsoft Azure AD](https://docs.microsoft.com/en-us/azure/active-directory/develop/active-directory-protocols-oauth-code), [GitHub](https://developer.github.com/apps/building-oauth-apps/authorization-options-for-oauth-apps/), [OKTA](https://www.okta.com/), [Auth0](https://auth0.com/), [Centrify](https://centrify.com) authentication for [CloudFront](https://aws.amazon.com/cloudfront/) using [Lambda@Edge](http://docs.aws.amazon.com/lambda/latest/dg/lambda-edge.html). The original use case for `cloudfront-auth` was to serve private S3 content over HTTPS without running a proxy server in EC2 to authenticate requests; but `cloudfront-auth` can be used authenticate requests of any Cloudfront origin configuration.
 
